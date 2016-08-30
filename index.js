@@ -145,6 +145,34 @@ Dissolve.prototype._transform = function _transform(input, encoding, done) {
       continue;
     }
 
+    if (job.type === "scan") {
+      var search = job.search;
+
+      if (typeof search === 'string') {
+        search = new Buffer(search);
+      } else if (typeof search === 'number') {
+        search = new Buffer([search]);
+      }
+      else if (!Buffer.isBuffer(search)) {
+        throw new Error('search must be a Buffer or a string');
+      }
+
+      var buffer = this._buffer;
+      // simple but slow string search
+      for (var i = 0; i + offset <= buffer.length - search.length + 1; i++) {
+        for (
+            var j = 0;
+            j < search.length && buffer[offset+i+j] === search[j];
+            j++
+        );
+        if (j === search.length) break;
+      }
+
+      this._exec_buffer(job, offset, i);
+      offset += i;
+      continue;
+    }
+
     var length;
     if (typeof job.length === "string") {
       length = this.vars[job.length];
@@ -183,6 +211,7 @@ Dissolve.prototype._transform = function _transform(input, encoding, done) {
       case "uint16le": { this.vars[job.name] = this._buffer.readUInt16LE(offset); break; }
       case "int16be":  { this.vars[job.name] = this._buffer.readInt16BE(offset);  break; }
       case "uint16be": { this.vars[job.name] = this._buffer.readUInt16BE(offset); break; }
+      case "uint24be": { this.vars[job.name] = (Math.pow(2, 8) * this._buffer.readUInt16BE(offset)) + this._buffer.readInt8(offset+2); break }
       case "int32le":  { this.vars[job.name] = this._buffer.readInt32LE(offset);  break; }
       case "uint32le": { this.vars[job.name] = this._buffer.readUInt32LE(offset); break; }
       case "int32be":  { this.vars[job.name] = this._buffer.readInt32BE(offset);  break; }
@@ -230,7 +259,7 @@ Dissolve.prototype._transform = function _transform(input, encoding, done) {
   });
 });
 
-[8, 16, 32, 64].forEach(function(b) {
+[8, 16, 24, 32, 64].forEach(function(b) {
   ["", "u"].forEach(function(s) {
     ["", "le", "be"].forEach(function(e) {
       var id = [s, "int", b, e].join(""),
@@ -293,6 +322,18 @@ Dissolve.prototype._transform = function _transform(input, encoding, done) {
     this.jobs.push({
       type: e,
       length: length,
+    });
+
+    return this;
+  };
+});
+
+["scan"].forEach(function(e) {
+  Dissolve.prototype[e] = function(name, search) {
+    this.jobs.push({
+      type: e,
+      name: name,
+      search: search,
     });
 
     return this;
